@@ -17,7 +17,7 @@ class Cache extends BaseTaggedCache
 
     public const DEFAULT_CACHE_TTL = 8640000;
 
-    protected const RESERVED_CHARACTERS = '{}()/\@:';
+    protected const RESERVED_CHARACTERS = "{}()/\@:";
     protected const RESERVED_CHARACTERS_MAP = [
         ":"     => ".",
         "@"     => "\1",
@@ -39,28 +39,30 @@ class Cache extends BaseTaggedCache
         }
 
         $key = self::cleanKey($key);
+        $tagNames = $this->tags->getNames();
 
-        $this->event(new RetrievingKey($this->getName(), $key, $this->tags->getNames()));
+        $this->event(new RetrievingKey($this->getName(), $key, $tagNames));
         $value = null;
 
         /**
          * @disregard P1013 - @var \TagSet
          */
-        $this->tags->entries()->each(function ($item) use ($key, &$value) {
+        foreach ($this->tags->entries() as $item) {
             $itemKey = str($item)->after(TagSet::KEY_PREFIX);
 
             if ($itemKey == $key) {
                 $value = $this->store->get($item);
-                return false;
-            }
-        });
 
-        if (!is_null($value)) {
-            $this->event(new CacheHit($this->getName(), $key, $value, $this->tags->getNames()));
-            return $value;
+                if (!is_null($value)) {
+                    $this->event(new CacheHit($this->getName(), $key, $value, $tagNames));
+                    return $value;
+                }
+
+                break;
+            }
         }
 
-        $this->event(new CacheMissed($this->getName(), $key, $this->tags->getNames()));
+        $this->event(new CacheMissed($this->getName(), $key, $tagNames));
         return value($default);
     }
 
@@ -69,22 +71,15 @@ class Cache extends BaseTaggedCache
      */
     public function add($key, $value, $ttl = null)
     {
-        $existingKey = false;
         /**
          * @disregard P1013 - @var \TagSet
          */
-        $this->tags->entries()->each(function ($item) use (&$key, &$existingKey) {
+        foreach ($this->tags->entries() as $item) {
             $itemKey = str($item)->after(TagSet::KEY_PREFIX);
 
             if ($itemKey == $key) {
-                $key = $item;
-                $existingKey = true;
                 return false;
             }
-        });
-
-        if ($existingKey) {
-            return false;
         }
 
         return $this->put($key, $value, $ttl);
@@ -96,23 +91,25 @@ class Cache extends BaseTaggedCache
     public function put($key, $value, $ttl = null)
     {
         $baseKey = self::cleanKey($key);
-        $key = self::cleanKey($baseKey);
+        $key = $baseKey;
 
         $existingKey = false;
         /**
          * @disregard P1013 - @var \TagSet
          */
-        $this->tags->entries()->each(function ($item) use (&$key, &$existingKey) {
+        foreach ($this->tags->entries() as $item) {
             $itemKey = str($item)->after(TagSet::KEY_PREFIX);
 
             if ($itemKey == $key) {
-                $key = $item;
                 $existingKey = true;
-                return false;
+                $key = $item;
+                break;
             }
-        });
+        }
 
-        $key = $existingKey == true ? $key : $this->itemKey($baseKey);
+        if (!$existingKey) {
+            $key =  $this->itemKey($baseKey);
+        }
 
         if (is_null($ttl)) {
             return $this->forever($key, $value);
