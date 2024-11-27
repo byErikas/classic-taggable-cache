@@ -2,6 +2,7 @@
 
 namespace ByErikas\ClassicTaggableCache\Cache;
 
+use Closure;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWriteFailed;
@@ -42,23 +43,14 @@ class Cache extends BaseTaggedCache
         $tagNames = $this->tags->getNames();
 
         $this->event(new RetrievingKey($this->getName(), $key, $tagNames));
-        $value = null;
 
-        /**
-         * @disregard P1013 - @var \TagSet
-         */
-        foreach ($this->tags->entries() as $item) {
-            $itemKey = str($item)->after(TagSet::KEY_PREFIX);
+        /**@disregard P1013 */
+        foreach ($this->tags->entries() as $itemKey) {
+            if (str($itemKey)->after(TagSet::KEY_PREFIX) == $key) {
+                $value = $this->store->get($itemKey);
 
-            if ($itemKey == $key) {
-                $value = $this->store->get($item);
-
-                if (!is_null($value)) {
-                    $this->event(new CacheHit($this->getName(), $key, $value, $tagNames));
-                    return $value;
-                }
-
-                break;
+                $this->event(new CacheHit($this->getName(), $key, $value, $tagNames));
+                return $value;
             }
         }
 
@@ -71,13 +63,12 @@ class Cache extends BaseTaggedCache
      */
     public function add($key, $value, $ttl = null)
     {
+        $key = self::cleanKey($key);
         /**
          * @disregard P1013 - @var \TagSet
          */
-        foreach ($this->tags->entries() as $item) {
-            $itemKey = str($item)->after(TagSet::KEY_PREFIX);
-
-            if ($itemKey == $key) {
+        foreach ($this->tags->entries() as $itemKey) {
+            if (str($itemKey)->after(TagSet::KEY_PREFIX) == $key) {
                 return false;
             }
         }
@@ -90,29 +81,23 @@ class Cache extends BaseTaggedCache
      */
     public function put($key, $value, $ttl = null)
     {
-        $baseKey = self::cleanKey($key);
-        $key = $baseKey;
+        $key = self::cleanKey($key);
 
-        $existingKey = false;
-        /**
-         * @disregard P1013 - @var \TagSet
-         */
-        foreach ($this->tags->entries() as $item) {
-            $itemKey = str($item)->after(TagSet::KEY_PREFIX);
-
-            if ($itemKey == $key) {
-                $existingKey = true;
-                $key = $item;
-                break;
+        $foundKey = false;
+        /**@disregard P1013 */
+        foreach ($this->tags->entries() as $itemKey) {
+            if (str($itemKey)->after(TagSet::KEY_PREFIX) == $key) {
+                $foundKey = true;
+                $key = $itemKey;
             }
         }
 
-        if (!$existingKey) {
-            $key =  $this->itemKey($baseKey);
+        if (!$foundKey) {
+            $key = $this->itemKey($key);
         }
 
         if (is_null($ttl)) {
-            return $this->forever($key, $value);
+            return $this->forever($key, $value, true);
         }
 
         $seconds = $this->getSeconds($ttl);
@@ -135,7 +120,7 @@ class Cache extends BaseTaggedCache
     protected function itemKey($key)
     {
         /** @disregard P1013 */
-        return "\0tagged" . $this->tags->tagNamePrefix() . TagSet::KEY_PREFIX . "{$key}";
+        return "tagged" . $this->tags->tagNamePrefix() . TagSet::KEY_PREFIX . "{$key}";
     }
 
     /**
@@ -153,8 +138,12 @@ class Cache extends BaseTaggedCache
     /**
      * {@inheritDoc}
      */
-    public function forever($key, $value)
+    public function forever($key, $value, bool $formedKey = false)
     {
+        if (!$formedKey) {
+            $key = $this->itemKey(self::cleanKey($key));
+        }
+
         /**@disregard P1013 */
         $this->tags->addEntry($key);
 
@@ -169,6 +158,44 @@ class Cache extends BaseTaggedCache
         }
 
         return $result;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function remember($key, $ttl, Closure $callback)
+    {
+        $key = self::cleanKey($key);
+
+        $value = $this->get($key);
+
+        if (! is_null($value)) {
+            return $value;
+        }
+
+        $value = $callback();
+
+        $this->put($key, $value, value($ttl, $value));
+
+        return $value;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public function rememberForever($key, Closure $callback)
+    {
+        $key = self::cleanKey($key);
+
+        $value = $this->get($key);
+
+        if (! is_null($value)) {
+            return $value;
+        }
+
+        $this->forever($key, $value = $callback());
+
+        return $value;
     }
 
     /**

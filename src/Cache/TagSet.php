@@ -68,7 +68,7 @@ class TagSet extends BaseTagSet
                     [$cursor, $entries] = $connection->zscan(
                         $this->store->getPrefix() . $tagKey,
                         $cursor,
-                        ['match' => '*', 'count' => 1000]
+                        ['match' =>  "*" . self::KEY_PREFIX . "*", 'count' => 1000]
                     );
 
                     if (! is_array($entries)) {
