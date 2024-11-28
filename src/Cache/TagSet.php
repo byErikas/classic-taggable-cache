@@ -2,6 +2,7 @@
 
 namespace ByErikas\ClassicTaggableCache\Cache;
 
+use Carbon\Carbon;
 use Generator;
 use Illuminate\Cache\RedisTagSet as BaseTagSet;
 use Illuminate\Redis\Connections\PhpRedisConnection;
@@ -89,6 +90,31 @@ class TagSet extends BaseTagSet
         });
 
         return $result;
+    }
+
+    /**
+     * Add a reference entry to the tag set's underlying sorted set.
+     *
+     * @param  string  $key
+     * @param  int|null  $ttl
+     * @param  string  $updateWhen
+     * @return void
+     */
+    public function addEntry(string $key, ?int $ttl = null, $updateWhen = null)
+    {
+        if (is_null($ttl)) {
+            $ttl = Cache::DEFAULT_CACHE_TTL;
+        }
+
+        $ttl = Carbon::now()->addSeconds($ttl)->getTimestamp();
+
+        foreach ($this->tagIds() as $tagKey) {
+            if ($updateWhen) {
+                $this->store->connection()->zadd($this->store->getPrefix() . $tagKey, $updateWhen, $ttl, $key);
+            } else {
+                $this->store->connection()->zadd($this->store->getPrefix() . $tagKey, $ttl, $key);
+            }
+        }
     }
 
     #region Helpers
