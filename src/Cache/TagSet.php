@@ -9,7 +9,7 @@ use Illuminate\Support\LazyCollection;
 
 class TagSet extends BaseTagSet
 {
-    public const TAG_PREFIX = "\0tags\0";
+    public const TAG_PREFIX = "tags\0";
     public const KEY_PREFIX = "\0key\0";
 
     /**

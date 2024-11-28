@@ -113,6 +113,6 @@ class Cache extends BaseTaggedCache
     protected function itemKey($key)
     {
         /** @disregard P1013 */
-        return "tagged" . $this->tags->tagNamePrefix() . TagSet::KEY_PREFIX . "{$key}";
+        return "tagged\0" . $this->tags->tagNamePrefix() . TagSet::KEY_PREFIX . "{$key}";
     }
 }
