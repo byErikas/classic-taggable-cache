@@ -2,19 +2,12 @@
 
 namespace ByErikas\ClassicTaggableCache\Cache;
 
-use Closure;
-use Illuminate\Cache\Events\CacheHit;
-use Illuminate\Cache\Events\CacheMissed;
-use Illuminate\Cache\Events\KeyWriteFailed;
-use Illuminate\Cache\Events\KeyWritten;
-use Illuminate\Cache\Events\RetrievingKey;
-use Illuminate\Cache\Events\WritingKey;
-use Illuminate\Support\InteractsWithTime;
+use ByErikas\ClassicTaggableCache\Cache\Traits\MethodOverrides;
 use Illuminate\Cache\RedisTaggedCache as BaseTaggedCache;
 
 class Cache extends BaseTaggedCache
 {
-    use InteractsWithTime;
+    use MethodOverrides;
 
     public const DEFAULT_CACHE_TTL = 8640000;
 
@@ -122,117 +115,4 @@ class Cache extends BaseTaggedCache
         /** @disregard P1013 */
         return "tagged" . $this->tags->tagNamePrefix() . TagSet::KEY_PREFIX . "{$key}";
     }
-
-    /**
-     * PSR-6 doesn't allow '{}()/\@:' as cache keys, replace with unique map.
-     */
-    public static function cleanKey(?string $key): string
-    {
-        return str_replace(str_split(Cache::RESERVED_CHARACTERS), Cache::RESERVED_CHARACTERS_MAP, $key);
-    }
-
-    #endregion
-
-    #region logic overrides
-
-    /**
-     * {@inheritDoc}
-     */
-    public function forever($key, $value, bool $formedKey = false)
-    {
-        if (!$formedKey) {
-            $key = $this->itemKey(self::cleanKey($key));
-        }
-
-        /**@disregard P1013 */
-        $this->tags->addEntry($key);
-
-        $this->event(new WritingKey($this->getName(), $key, $value, null, $this->tags->getNames()));
-
-        $result = $this->store->forever($key, $value);
-
-        if ($result) {
-            $this->event(new KeyWritten($this->getName(), $key, $value, null, $this->tags->getNames()));
-        } else {
-            $this->event(new KeyWriteFailed($this->getName(), $key, $value, null, $this->tags->getNames()));
-        }
-
-        return $result;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function remember($key, $ttl, Closure $callback)
-    {
-        $key = self::cleanKey($key);
-
-        $value = $this->get($key);
-
-        if (! is_null($value)) {
-            return $value;
-        }
-
-        $value = $callback();
-
-        $this->put($key, $value, value($ttl, $value));
-
-        return $value;
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function rememberForever($key, Closure $callback)
-    {
-        $key = self::cleanKey($key);
-
-        $value = $this->get($key);
-
-        if (! is_null($value)) {
-            return $value;
-        }
-
-        $this->forever($key, $value = $callback());
-
-        return $value;
-    }
-
-    /**
-     * Store an item in the cache.
-     *
-     * @param  array|string  $key
-     * @param  mixed  $value
-     * @param  \DateTimeInterface|\DateInterval|int|null  $ttl
-     * @return bool
-     */
-    public function putCache($key, $value, $ttl = null)
-    {
-        if (is_array($key)) {
-            return $this->putMany($key, $value);
-        }
-
-        if ($ttl === null) {
-            return $this->forever($key, $value);
-        }
-
-        $seconds = $this->getSeconds($ttl);
-
-        if ($seconds <= 0) {
-            return $this->forget($key);
-        }
-
-        $this->event(new WritingKey($this->getName(), $key, $value, $seconds, $this->tags->getNames()));
-
-        $result = $this->store->put($key, $value, $seconds);
-
-        if ($result) {
-            $this->event(new KeyWritten($this->getName(), $key, $value, $seconds), $this->tags->getNames());
-        } else {
-            $this->event(new KeyWriteFailed($this->getName(), $key, $value, $seconds, $this->tags->getNames()));
-        }
-
-        return $result;
-    }
-    #endregion
 }
